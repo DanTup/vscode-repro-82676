@@ -12,7 +12,6 @@ import { isWithinPath } from "../shared/utils";
 import { FlutterDeviceManager } from "../shared/vscode/device_manager";
 import { extensionVersion, isDevExtension } from "../shared/vscode/extension_utils";
 import { InternalExtensionApi } from "../shared/vscode/interfaces";
-import { DartUriHandler } from "../shared/vscode/uri_handlers/uri_handler";
 import { fsPath, getDartWorkspaceFolders, isRunningLocally } from "../shared/vscode/utils";
 import { Context } from "../shared/vscode/workspace";
 import { WorkspaceContext } from "../shared/workspace";
@@ -23,25 +22,11 @@ import { openFileTracker } from "./analysis/open_file_tracker";
 import { Analytics } from "./analytics";
 import { DartExtensionApi } from "./api";
 import { TestCodeLensProvider } from "./code_lens/test_code_lens_provider";
-import { AnalyzerCommands } from "./commands/analyzer";
-import { DebugCommands } from "./commands/debug";
-import { EditCommands } from "./commands/edit";
-import { DasEditCommands } from "./commands/edit_das";
-import { GoToSuperCommand } from "./commands/go_to_super";
-import { LoggingCommands } from "./commands/logging";
-import { OpenInOtherEditorCommands } from "./commands/open_in_other_editors";
-import { RefactorCommands } from "./commands/refactor";
-import { SdkCommands } from "./commands/sdk";
-import { cursorIsInTest, TestCommands } from "./commands/test";
-import { TypeHierarchyCommand } from "./commands/type_hierarchy";
+import { cursorIsInTest } from "./commands/test";
 import { config } from "./config";
 import { ClosingLabelsDecorations } from "./decorations/closing_labels_decorations";
-import { FlutterColorDecorations } from "./decorations/flutter_color_decorations";
-import { FlutterIconDecorations } from "./decorations/flutter_icon_decorations";
-import { FlutterUiGuideDecorations } from "./decorations/flutter_ui_guides_decorations";
 import { setUpDaemonMessageHandler } from "./flutter/daemon_message_handler";
 import { FlutterDaemon } from "./flutter/flutter_daemon";
-import { setUpHotReloadOnSave } from "./flutter/hot_reload_save_handler";
 import { AssistCodeActionProvider } from "./providers/assist_code_action_provider";
 import { DartCompletionItemProvider } from "./providers/dart_completion_item_provider";
 import { DartDiagnosticProvider } from "./providers/dart_diagnostic_provider";
@@ -339,13 +324,6 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 	context.subscriptions.push(vs.debug.registerDebugConfigurationProvider("dart", debugProvider));
 	context.subscriptions.push(debugProvider);
 
-	if (config.previewFlutterUiGuides)
-		context.subscriptions.push(new FlutterUiGuideDecorations(analyzer));
-	if (config.previewFlutterGutterIcons) {
-		context.subscriptions.push(new FlutterIconDecorations(logger, analyzer));
-		context.subscriptions.push(new FlutterColorDecorations(logger, path.join(context.globalStoragePath, "flutterColors")));
-	}
-
 	// Setup that requires server version/capabilities.
 	const connectedSetup = analyzer.registerForServerConnected((sc) => {
 		connectedSetup.dispose();
@@ -384,34 +362,6 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 			});
 		}
 	});
-
-	// Handle config changes so we can reanalyze if necessary.
-	context.subscriptions.push(vs.workspace.onDidChangeConfiguration(() => handleConfigurationChange(sdks)));
-
-	// Register additional commands.
-	const analyzerCommands = new AnalyzerCommands(context, analyzer);
-	const sdkCommands = new SdkCommands(logger, context, workspaceContext, sdkUtils, pubGlobal, flutterCapabilities, deviceManager);
-	const debugCommands = new DebugCommands(logger, extContext, workspaceContext, analytics, pubGlobal);
-
-	// Wire up handling of Hot Reload on Save.
-	if (workspaceContext.hasAnyFlutterProjects) {
-		setUpHotReloadOnSave(context, debugCommands);
-	}
-
-	// Register URI handler.
-	context.subscriptions.push(vs.window.registerUriHandler(new DartUriHandler(flutterCapabilities)));
-
-	// Set up commands for Dart editors.
-	context.subscriptions.push(new EditCommands());
-	context.subscriptions.push(new DasEditCommands(logger, context, analyzer));
-	context.subscriptions.push(new RefactorCommands(logger, context, analyzer));
-
-	// Register misc commands.
-	context.subscriptions.push(new TypeHierarchyCommand(logger, analyzer));
-	context.subscriptions.push(new GoToSuperCommand(analyzer));
-	context.subscriptions.push(new LoggingCommands(logger, context.logPath));
-	context.subscriptions.push(new OpenInOtherEditorCommands(logger, sdks));
-	context.subscriptions.push(new TestCommands(logger));
 
 	console.log("Has finished activating extension!");
 
