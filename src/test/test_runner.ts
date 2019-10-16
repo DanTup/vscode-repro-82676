@@ -8,15 +8,7 @@ export function run(): Promise<void> {
 	return new Promise((resolve, reject) => {
 
 		// Create the mocha test
-		const mocha = new Mocha({
-			forbidOnly: !!process.env.MOCHA_FORBID_ONLY,
-			slow: 10000,       // increased threshold before marking a test as slow
-			timeout: 180000,   // increased timeout because starting up Code, Analyzer, Pub, etc. is slooow
-			ui: "bdd",        // the TDD UI is being used in extension.test.ts (suite, test, etc.)
-			useColors: true,  // colored output from test results
-		});
-		// Use any mocha API
-		mocha.useColors(true);
+		const mocha = new Mocha({ ui: "bdd" });
 
 		const testsRoot = path.resolve(__dirname, '..');
 		glob("**/**.test.js", { cwd: testsRoot }, (err, files) => {
