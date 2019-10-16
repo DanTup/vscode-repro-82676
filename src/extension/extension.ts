@@ -2,15 +2,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { isArray } from "util";
 import * as vs from "vscode";
-import { DaemonCapabilities, FlutterCapabilities } from "../shared/capabilities/flutter";
+import { FlutterCapabilities } from "../shared/capabilities/flutter";
 import { analyzerSnapshotPath, dartVMPath, flutterExtensionIdentifier, HAS_LAST_DEBUG_CONFIG, isWin, IS_RUNNING_LOCALLY_CONTEXT, platformDisplayName } from "../shared/constants";
 import { LogCategory } from "../shared/enums";
 import { DartWorkspaceContext, Sdks } from "../shared/interfaces";
 import { captureLogs, EmittingLogger, logToConsole } from "../shared/logging";
-import { internalApiSymbol } from "../shared/symbols";
 import { isWithinPath } from "../shared/utils";
 import { extensionVersion, isDevExtension } from "../shared/vscode/extension_utils";
-import { InternalExtensionApi } from "../shared/vscode/interfaces";
 import { fsPath, getDartWorkspaceFolders, isRunningLocally } from "../shared/vscode/utils";
 import { Context } from "../shared/vscode/workspace";
 import { WorkspaceContext } from "../shared/workspace";
@@ -18,25 +16,11 @@ import { Analyzer } from "./analysis/analyzer";
 import { FileChangeHandler } from "./analysis/file_change_handler";
 import { openFileTracker } from "./analysis/open_file_tracker";
 import { Analytics } from "./analytics";
-import { DartExtensionApi } from "./api";
-import { cursorIsInTest } from "./commands/test";
 import { config } from "./config";
-import { DartCompletionItemProvider } from "./providers/dart_completion_item_provider";
-import { DartFormattingEditProvider } from "./providers/dart_formatting_edit_provider";
-import { DartDocumentHighlightProvider } from "./providers/dart_highlighting_provider";
-import { DartHoverProvider } from "./providers/dart_hover_provider";
-import { DartImplementationProvider } from "./providers/dart_implementation_provider";
-import { DartReferenceProvider } from "./providers/dart_reference_provider";
-import { DartRenameProvider } from "./providers/dart_rename_provider";
-import { DebugConfigProvider } from "./providers/debug_config_provider";
-import { SourceCodeActionProvider } from "./providers/source_code_action_provider";
-import { PubGlobal } from "./pub/global";
 import { DartCapabilities } from "./sdk/capabilities";
 import { SdkUtils } from "./sdk/utils";
 import * as util from "./utils";
 import { addToLogHeader, clearLogHeader, getExtensionLogPath, getLogHeader } from "./utils/log";
-import { safeSpawn } from "./utils/processes";
-import { envUtils } from "./utils/vscode/editor";
 
 const DART_MODE = { language: "dart", scheme: "file" };
 const HTML_MODE = { language: "html", scheme: "file" };
@@ -112,7 +96,6 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 	const sdks = workspaceContext.sdks;
 
 	// Fire up the analyzer process.
-	const analyzerStartTime = new Date();
 	const analyzerPath = config.analyzerPath || path.join(sdks.dart, analyzerSnapshotPath);
 	// If the ssh host is set, then we are running the analyzer on a remote machine, that same analyzer
 	// might not exist on the local machine.
@@ -124,71 +107,12 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 	analyzer = new Analyzer(logger, path.join(sdks.dart, dartVMPath), analyzerPath);
 	context.subscriptions.push(analyzer);
 
-	const nextAnalysis = () =>
-		new Promise<void>((resolve, reject) => {
-			const disposable = analyzer.registerForServerStatus((ss) => {
-				if (ss.analysis && !ss.analysis.isAnalyzing) {
-					resolve();
-					disposable.dispose();
-				}
-			});
-		});
-
-	// Set up providers.
-	// TODO: Do we need to push all these to subscriptions?!
-	const hoverProvider = new DartHoverProvider(logger, analyzer);
-	const formattingEditProvider = new DartFormattingEditProvider(logger, analyzer, extContext);
-	context.subscriptions.push(formattingEditProvider);
-	const completionItemProvider = new DartCompletionItemProvider(logger, analyzer);
-	const referenceProvider = new DartReferenceProvider(analyzer);
-	const documentHighlightProvider = new DartDocumentHighlightProvider();
-	const sourceCodeActionProvider = new SourceCodeActionProvider();
-
-	const renameProvider = new DartRenameProvider(analyzer);
-	const implementationProvider = new DartImplementationProvider(analyzer);
-
-	const activeFileFilters: vs.DocumentSelector = [DART_MODE];
-
-	if (config.analyzeAngularTemplates) {
-		// Analyze files supported by plugins
-		activeFileFilters.push(HTML_MODE);
-		activeFileFilters.push(...additionalModes);
-	}
-
-	const triggerCharacters = ".(${'\"/\\".split("");
-	context.subscriptions.push(vs.languages.registerHoverProvider(activeFileFilters, hoverProvider));
-	formattingEditProvider.registerDocumentFormatter(activeFileFilters);
-	context.subscriptions.push(vs.languages.registerCompletionItemProvider(activeFileFilters, completionItemProvider, ...triggerCharacters));
-	context.subscriptions.push(vs.languages.registerDefinitionProvider(activeFileFilters, referenceProvider));
-	context.subscriptions.push(vs.languages.registerReferenceProvider(activeFileFilters, referenceProvider));
-	context.subscriptions.push(vs.languages.registerDocumentHighlightProvider(activeFileFilters, documentHighlightProvider));
-	context.subscriptions.push(vs.languages.registerRenameProvider(activeFileFilters, renameProvider));
-
-	// Some actions only apply to Dart.
-	formattingEditProvider.registerTypingFormatter(DART_MODE, "}", ";");
-	context.subscriptions.push(vs.languages.registerCodeActionsProvider(DART_MODE, sourceCodeActionProvider, sourceCodeActionProvider.metadata));
-
-	context.subscriptions.push(vs.languages.registerImplementationProvider(DART_MODE, implementationProvider));
-
 	// TODO: Currently calculating analysis roots requires the version to check if
 	// we need the package workaround. In future if we stop supporting server < 1.20.1 we
 	// can unwrap this call so that it'll start sooner.
 	const serverConnected = analyzer.registerForServerConnected((sc) => {
 		serverConnected.dispose();
 		recalculateAnalysisRoots();
-
-		// Set up a handler to warn the user if they open a Dart file and we
-		// never set up the analyzer
-		let hasWarnedAboutLooseDartFiles = false;
-		const handleOpenFile = (d: vs.TextDocument) => {
-			if (d.languageId === "dart" && analysisRoots.length === 0 && !hasWarnedAboutLooseDartFiles) {
-				hasWarnedAboutLooseDartFiles = true;
-				vs.window.showWarningMessage("For full Dart language support, please open a folder containing your Dart files instead of individual loose files");
-			}
-		};
-		context.subscriptions.push(vs.workspace.onDidOpenTextDocument((d) => handleOpenFile(d)));
-		// Fire for editors already visible at the time this code runs.
-		vs.window.visibleTextEditors.forEach((e) => handleOpenFile(e.document));
 	});
 
 	// Hook editor changes to send updated contents to analyzer.
@@ -196,58 +120,15 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 
 	util.logTime("All other stuff before debugger..");
 
-	const pubGlobal = new PubGlobal(logger, extContext, sdks);
-
-	// Set up debug stuff.
-	const debugProvider = new DebugConfigProvider(logger, sdks, analytics, pubGlobal, undefined, undefined, dartCapabilities, flutterCapabilities);
-	context.subscriptions.push(vs.debug.registerDebugConfigurationProvider("dart", debugProvider));
-	context.subscriptions.push(debugProvider);
-
 	// Setup that requires server version/capabilities.
 	const connectedSetup = analyzer.registerForServerConnected((sc) => {
 		connectedSetup.dispose();
 
 		context.subscriptions.push(openFileTracker.create(logger, analyzer, workspaceContext));
-
-		// Set up completions for unimported items.
-		if (analyzer.capabilities.supportsAvailableSuggestions && config.autoImportCompletions) {
-			analyzer.completionSetSubscriptions({
-				subscriptions: ["AVAILABLE_SUGGESTION_SETS"],
-			});
-		}
 	});
 
 	console.log("Has finished activating extension!");
 
-	return {
-		...new DartExtensionApi(),
-		[internalApiSymbol]: {
-			analyzerCapabilities: analyzer.capabilities,
-			cancelAllAnalysisRequests: () => analyzer.cancelAllRequests(),
-			completionItemProvider,
-			context: extContext,
-			currentAnalysis: () => analyzer.currentAnalysis,
-			get cursorIsInTest() { return cursorIsInTest; },
-			daemonCapabilities: DaemonCapabilities.empty,
-			dartCapabilities,
-			debugCommands: undefined,
-			debugProvider,
-			envUtils,
-			fileTracker: openFileTracker,
-			flutterCapabilities,
-			flutterOutlineTreeProvider: undefined,
-			getLogHeader,
-			initialAnalysis: undefined,
-			logger,
-			nextAnalysis,
-			packagesTreeProvider: undefined,
-			pubGlobal,
-			renameProvider,
-			safeSpawn,
-			testTreeProvider: undefined,
-			workspaceContext,
-		} as InternalExtensionApi,
-	};
 }
 
 function setupLog(logFile: string | undefined, category: LogCategory) {
