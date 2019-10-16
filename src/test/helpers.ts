@@ -2,19 +2,15 @@ import * as assert from "assert";
 import * as fs from "fs";
 import { tmpdir } from "os";
 import * as path from "path";
-import * as sinon from "sinon";
 import * as vs from "vscode";
 import { dartCodeExtensionIdentifier, DART_TEST_SUITE_NODE_CONTEXT } from "../shared/constants";
 import { LogCategory } from "../shared/enums";
 import { Logger } from "../shared/interfaces";
-import { captureLogs } from "../shared/logging";
-import { internalApiSymbol } from "../shared/symbols";
 import { BufferedLogger, flatMap } from "../shared/utils";
 import { tryDeleteFile } from "../shared/utils/fs";
 import { waitFor } from "../shared/utils/promises";
 import { DelayedCompletionItem, InternalExtensionApi } from "../shared/vscode/interfaces";
 import { fsPath } from "../shared/vscode/utils";
-import { Context } from "../shared/vscode/workspace";
 
 export const ext = vs.extensions.getExtension(dartCodeExtensionIdentifier)!;
 export let extApi: InternalExtensionApi;
@@ -114,116 +110,6 @@ export function currentDoc(): vs.TextDocument {
 }
 export let documentEol: string;
 
-function getDefaultFile(): vs.Uri {
-	// TODO: Web?
-	if (extApi.workspaceContext.hasAnyFlutterProjects)
-		return flutterEmptyFile;
-	else
-		return emptyFile;
-}
-
-export async function activateWithoutAnalysis(): Promise<void> {
-	// TODO: Should we do this, or should we just check that it has been activated?
-	await ext.activate();
-	if (ext.exports) {
-		extApi = ext.exports[internalApiSymbol];
-		setupTestLogging();
-	} else
-		console.warn("Extension has no exports, it probably has not activated correctly! Check the extension startup logs.");
-}
-
-export async function attachLoggingWhenExtensionAvailable(attempt = 1) {
-	if (logger && !(logger instanceof BufferedLogger)) {
-		console.warn("Logging was already set up!");
-		return;
-	}
-
-	if (setupTestLogging()) {
-		// console.log("Logging was configured!");
-		return;
-	}
-
-	if (attempt < 50) {
-		setTimeout(() => attachLoggingWhenExtensionAvailable(attempt + 1), 100);
-	} else {
-		console.warn(`Failed to set up logging after ${attempt} attempts`);
-	}
-}
-
-function setupTestLogging(): boolean {
-	const ext = vs.extensions.getExtension(dartCodeExtensionIdentifier)!;
-	if (!ext.isActive || !ext.exports)
-		return false;
-
-	extApi = ext.exports[internalApiSymbol];
-	const emittingLogger = extApi.logger;
-
-	if (fileSafeCurrentTestName) {
-		const logFolder = process.env.DC_TEST_LOGS || path.join(ext.extensionPath, ".dart_code_test_logs");
-		if (!fs.existsSync(logFolder))
-			fs.mkdirSync(logFolder);
-		const logFile = fileSafeCurrentTestName + ".txt";
-		const logPath = path.join(logFolder, logFile);
-
-		const testLogger = captureLogs(emittingLogger, logPath, extApi.getLogHeader(), 20000);
-
-		deferUntilLast(async (testResult?: "passed" | "failed") => {
-			// Put a new buffered logger back to capture any logging output happening
-			// after we closed our log file to be included in the next.
-			logger = new BufferedLogger();
-
-			await testLogger.dispose();
-			// On CI, we delete logs for passing tests to save money on S3 :-)
-			if (process.env.CI && testResult === "passed") {
-				try {
-					fs.unlinkSync(logPath);
-				} catch { }
-			}
-		});
-	}
-
-	if (logger && logger instanceof BufferedLogger)
-		logger.flushTo(emittingLogger);
-	logger = emittingLogger;
-
-	return true;
-}
-
-export async function activate(file?: vs.Uri | null | undefined): Promise<void> {
-	await activateWithoutAnalysis();
-	if (file === undefined) // undefined means use default, but explicit null will result in no file open.
-		file = getDefaultFile();
-
-	await closeAllOpenFiles();
-	if (file) {
-		await openFile(file);
-	} else {
-		logger.info(`Not opening any file`);
-	}
-	logger.info(`Waiting for initial and any in-progress analysis`);
-	await extApi.initialAnalysis;
-	// Opening a file above may start analysis after a short period so give it time to start
-	// before we continue.
-	await delay(200);
-	await extApi.currentAnalysis();
-
-	logger.info(`Cancelling any in-progress requests`);
-	extApi.cancelAllAnalysisRequests();
-
-	logger.info(`Ready to start test`);
-}
-
-export async function getPackages(uri?: vs.Uri) {
-	await activateWithoutAnalysis();
-	if (!(uri || (vs.workspace.workspaceFolders && vs.workspace.workspaceFolders.length))) {
-		logger.error("Cannot getPackages because there is no workspace folder and no URI was supplied");
-		return;
-	}
-	await waitForNextAnalysis(async () => {
-		await vs.commands.executeCommand("dart.getPackages", uri || vs.workspace.workspaceFolders![0].uri);
-	}, 60);
-}
-
 function logOpenEditors() {
 	logger.info(`Current open editors are:`);
 	if (vs.window.visibleTextEditors && vs.window.visibleTextEditors.length) {
@@ -310,48 +196,7 @@ export function deleteDirectoryRecursive(folder: string) {
 }
 
 export let currentTestName = "unknown";
-export let fileSafeCurrentTestName: string = "unknown";
-beforeEach("stash current test name", async function () {
-	currentTestName = this.currentTest ? this.currentTest.fullTitle() : "unknown";
-	fileSafeCurrentTestName = filenameSafe(currentTestName);
-});
-
-export let sb: sinon.SinonSandbox;
-beforeEach("create sinon sandbox", () => { sb = sinon.createSandbox(); });
-afterEach("destroy sinon sandbox", () => sb.restore());
-afterEach("make empty file empty", () => fs.writeFileSync(fsPath(emptyFile), ""));
-
-before("throw if DART_CODE_IS_TEST_RUN is not set", () => {
-	if (!process.env.DART_CODE_IS_TEST_RUN)
-		throw new Error("DART_CODE_IS_TEST_RUN env var should be set for test runs.");
-});
-
-const deferredItems: Array<(result?: "failed" | "passed") => Promise<any> | any> = [];
-const deferredToLastItems: Array<(result?: "failed" | "passed") => Promise<any> | any> = [];
-afterEach("run deferred functions", async function () {
-	let firstError: any;
-	for (const d of [...deferredItems.reverse(), ...deferredToLastItems.reverse()]) {
-		try {
-			await watchPromise(`afterEach->deferred->${d.toString()}`, d(this.currentTest ? this.currentTest.state : undefined));
-		} catch (e) {
-			logger.error(`Error running deferred function: ${e}`);
-			// TODO: Add named for deferred functions instead...
-			logger.warn(d.toString());
-			firstError = firstError || e;
-		}
-	}
-	deferredItems.length = 0;
-	deferredToLastItems.length = 0;
-	// We delay throwing until the end so that other cleanup can run
-	if (firstError)
-		throw firstError;
-});
-export function defer(callback: (result?: "failed" | "passed") => Promise<any> | any): void {
-	deferredItems.push(callback);
-}
-export function deferUntilLast(callback: (result?: "failed" | "passed") => Promise<any> | any): void {
-	deferredToLastItems.push(callback);
-}
+export let fileSafeCurrentTestName: string = "unknown"
 
 export async function setTestContent(content: string): Promise<void> {
 	const doc = currentDoc();
@@ -789,16 +634,7 @@ export async function getAttachConfiguration(extraConfiguration?: { [key: string
 	return await getResolvedDebugConfiguration(attachConfig);
 }
 
-export async function writeBrokenDartCodeIntoFileForTest(file: vs.Uri): Promise<void> {
-	const nextAnalysis = extApi.nextAnalysis();
-	fs.writeFileSync(fsPath(file), "this is broken dart code");
-	await nextAnalysis;
-	// HACK: Sometimes we see analysis the analysis flag toggle quickly and we get an empty error list
-	// so we need to add a small delay here and then wait for any in progress analysis.
-	await delay(500);
-	await extApi.currentAnalysis();
-	defer(() => tryDelete(file));
-}
+
 
 // Watches a promise and reports every 10s while it's unresolved. This is to aid tracking
 // down hangs in test runs where multiple promises can be spawned together and generate
@@ -841,34 +677,6 @@ export function watchPromise<T>(name: string, promise: Promise<T>): Promise<T> {
 	setTimeout(() => checkResult(initialCheck), initialCheck).unref(); // First log is after 3s, rest are 10s.
 
 	return promise;
-}
-
-export async function setConfigForTest(section: string, key: string, value: any): Promise<void> {
-	const conf = vs.workspace.getConfiguration(section);
-	const values = conf.inspect(key);
-	const oldValue = values && values.globalValue;
-	await conf.update(key, value, vs.ConfigurationTarget.Global);
-	defer(() => conf.update(key, oldValue, vs.ConfigurationTarget.Global));
-}
-
-export async function addLaunchConfigsForTest(workspaceUri: vs.Uri, configs: any[]) {
-	const launchConfig = vs.workspace.getConfiguration("launch", workspaceUri);
-	const originalConfigs = launchConfig.get<any[]>("configurations") || [];
-	const newConfigs = (originalConfigs || []).slice().concat(configs);
-	await launchConfig.update("configurations", newConfigs);
-	defer(() => launchConfig.update("configurations", originalConfigs.length ? originalConfigs : undefined));
-}
-
-export function clearAllContext(context: Context): Promise<void> {
-	context.devToolsNotificationsShown = undefined;
-	context.devToolsNotificationLastShown = undefined;
-	context.devToolsNotificationDoNotShow = undefined;
-	context.flutterSurvey2019Q3NotificationLastShown = undefined;
-	context.flutterSurvey2019Q3NotificationDoNotShow = undefined;
-
-	// HACK Updating context is async, but since we use setters we can't easily wait
-	// and this is only test code...
-	return new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 export function ensurePackageTreeNode(items: vs.TreeItem[] | undefined | null, nodeContext: string, label: string, description?: string): vs.TreeItem {
