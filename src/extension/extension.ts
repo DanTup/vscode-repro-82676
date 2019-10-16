@@ -376,7 +376,7 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 			get cursorIsInTest() { return cursorIsInTest; },
 			daemonCapabilities: flutterDaemon ? flutterDaemon.capabilities : DaemonCapabilities.empty,
 			dartCapabilities,
-			debugCommands,
+			debugCommands: undefined,
 			debugProvider,
 			envUtils,
 			fileTracker: openFileTracker,
