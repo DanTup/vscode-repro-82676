@@ -115,6 +115,7 @@ const loggers: Array<{ dispose: () => Promise<void> | void }> = [];
 const logger = new EmittingLogger();
 
 export async function activate(context: vs.ExtensionContext, isRestart: boolean = false) {
+	console.log("Activating extension!");
 	if (isDevExtension)
 		logToConsole(logger);
 
