@@ -4,8 +4,9 @@ import * as glob from "glob";
 import * as Mocha from "mocha";
 import * as path from "path";
 
-module.exports = {
-	run(testsRoot: string, cb: (error: any, failures?: number) => void): void {
+export function run(): Promise<void> {
+	return new Promise((resolve, reject) => {
+
 		// Create the mocha test
 		const mocha = new Mocha({
 			forbidOnly: !!process.env.MOCHA_FORBID_ONLY,
@@ -17,21 +18,10 @@ module.exports = {
 		// Use any mocha API
 		mocha.useColors(true);
 
-		// Set up source map support.
-		require("source-map-support").install();
-
-		const callCallback = (error: any, failures?: number) => {
-			setTimeout(() => {
-				console.error(`Test process did not quit within 10 seconds!`);
-			}, 10000).unref();
-
-			console.log(`Test run is complete! Calling VS Code callback with (${error}, ${failures})`);
-			cb(error, failures);
-		};
-
+		const testsRoot = path.resolve(__dirname, '..');
 		glob("**/**.test.js", { cwd: testsRoot }, (err, files) => {
 			if (err) {
-				return callCallback(err);
+				return reject(err);
 			}
 
 			// Add files to the test suite
@@ -39,10 +29,10 @@ module.exports = {
 
 			try {
 				// Run the mocha test
-				mocha.run((failures) => callCallback(null, failures));
+				mocha.run((_) => resolve());
 			} catch (err) {
-				callCallback(err);
+				reject(err);
 			}
 		});
-	},
+	});
 };
