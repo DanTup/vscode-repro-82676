@@ -27,7 +27,6 @@ import { AnalyzerCommands } from "./commands/analyzer";
 import { DebugCommands } from "./commands/debug";
 import { EditCommands } from "./commands/edit";
 import { DasEditCommands } from "./commands/edit_das";
-import { FlutterOutlineCommands } from "./commands/flutter_outline";
 import { GoToSuperCommand } from "./commands/go_to_super";
 import { LoggingCommands } from "./commands/logging";
 import { OpenInOtherEditorCommands } from "./commands/open_in_other_editors";
@@ -40,10 +39,8 @@ import { ClosingLabelsDecorations } from "./decorations/closing_labels_decoratio
 import { FlutterColorDecorations } from "./decorations/flutter_color_decorations";
 import { FlutterIconDecorations } from "./decorations/flutter_icon_decorations";
 import { FlutterUiGuideDecorations } from "./decorations/flutter_ui_guides_decorations";
-import { HotReloadCoverageDecorations } from "./decorations/hot_reload_coverage_decorations";
 import { setUpDaemonMessageHandler } from "./flutter/daemon_message_handler";
 import { FlutterDaemon } from "./flutter/flutter_daemon";
-import { FlutterOutlineProvider } from "./flutter/flutter_outline_view";
 import { setUpHotReloadOnSave } from "./flutter/hot_reload_save_handler";
 import { AssistCodeActionProvider } from "./providers/assist_code_action_provider";
 import { DartCompletionItemProvider } from "./providers/dart_completion_item_provider";
@@ -77,8 +74,6 @@ import * as util from "./utils";
 import { addToLogHeader, clearLogHeader, getExtensionLogPath, getLogHeader } from "./utils/log";
 import { safeSpawn } from "./utils/processes";
 import { envUtils } from "./utils/vscode/editor";
-import { DartPackagesProvider } from "./views/packages_view";
-import { TestItemTreeItem, TestResultsProvider } from "./views/test_view";
 
 const DART_MODE = { language: "dart", scheme: "file" };
 const HTML_MODE = { language: "html", scheme: "file" };
@@ -418,92 +413,6 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 	context.subscriptions.push(new OpenInOtherEditorCommands(logger, sdks));
 	context.subscriptions.push(new TestCommands(logger));
 
-	// Register our view providers.
-	const dartPackagesProvider = new DartPackagesProvider(logger);
-	const packagesTreeView = vs.window.createTreeView("dartPackages", { treeDataProvider: dartPackagesProvider });
-	context.subscriptions.push(
-		dartPackagesProvider,
-		packagesTreeView,
-	);
-	const testTreeProvider = new TestResultsProvider();
-	const testTreeView = vs.window.createTreeView("dartTestTree", { treeDataProvider: testTreeProvider });
-	context.subscriptions.push(
-		testTreeProvider,
-		testTreeView,
-		testTreeProvider.onDidStartTests((node) => {
-			if (config.openTestViewOnStart)
-				testTreeView.reveal(node);
-		}),
-		testTreeProvider.onFirstFailure((node) => {
-			if (config.openTestViewOnFailure)
-				testTreeView.reveal(node);
-		}),
-		testTreeView.onDidChangeSelection((e) => {
-			testTreeProvider.setSelectedNodes(e.selection && e.selection.length === 1 ? e.selection[0] as TestItemTreeItem : undefined);
-		}),
-	);
-	let flutterOutlineTreeProvider: FlutterOutlineProvider | undefined;
-	if (config.flutterOutline) {
-		// TODO: Extract this out - it's become messy since TreeView was added in.
-		flutterOutlineTreeProvider = new FlutterOutlineProvider(analyzer);
-		const tree = vs.window.createTreeView("dartFlutterOutline", { treeDataProvider: flutterOutlineTreeProvider, showCollapseAll: true });
-		tree.onDidChangeSelection((e) => {
-			// TODO: This should be in a tree, not the data provider.
-			flutterOutlineTreeProvider!.setContexts(e.selection);
-		});
-
-		context.subscriptions.push(vs.window.onDidChangeTextEditorSelection((e) => {
-			if (e.selections && e.selections.length) {
-				const node = flutterOutlineTreeProvider!.getNodeAt(e.textEditor.document.uri, e.selections[0].start);
-				if (node && tree.visible)
-					tree.reveal(node, { select: true, focus: false, expand: true });
-			}
-		}));
-		context.subscriptions.push(tree);
-		context.subscriptions.push(flutterOutlineTreeProvider);
-		const flutterOutlineCommands = new FlutterOutlineCommands(tree, context);
-	}
-
-	if (workspaceContext.hasAnyFlutterProjects && config.previewHotReloadCoverageMarkers) {
-		context.subscriptions.push(new HotReloadCoverageDecorations(logger, debugCommands));
-	}
-
-	context.subscriptions.push(vs.commands.registerCommand("dart.package.openFile", (filePath) => {
-		if (!filePath) return;
-
-		vs.workspace.openTextDocument(filePath).then((document) => {
-			vs.window.showTextDocument(document, { preview: true });
-		}, (error) => logger.error(error));
-	}));
-
-	// Log how long all this startup took.
-	const extensionEndTime = new Date();
-	if (isRestart) {
-		analytics.logExtensionRestart(extensionEndTime.getTime() - extensionStartTime.getTime());
-	} else {
-		analytics.logExtensionStartup(extensionEndTime.getTime() - extensionStartTime.getTime());
-	}
-
-	// Handle changes to the workspace.
-	// Set the roots, handling project changes that might affect SDKs.
-	context.subscriptions.push(vs.workspace.onDidChangeWorkspaceFolders(async (f) => {
-		// First check if something changed that will affect our SDK, in which case
-		// we'll perform a silent restart so that we do new SDK searches.
-		const newWorkspaceContext = await sdkUtils.scanWorkspace();
-		if (
-			newWorkspaceContext.hasOnlyDartProjects !== workspaceContext.hasOnlyDartProjects
-			|| newWorkspaceContext.hasAnyFlutterProjects !== workspaceContext.hasAnyFlutterProjects
-			|| newWorkspaceContext.hasProjectsInFuchsiaTree !== workspaceContext.hasProjectsInFuchsiaTree
-			|| newWorkspaceContext.isDartSdkRepo !== workspaceContext.isDartSdkRepo
-		) {
-			util.reloadExtension();
-			return;
-		}
-
-		dartPackagesProvider.refresh();
-		recalculateAnalysisRoots();
-	}));
-
 	console.log("Has finished activating extension!");
 
 	return {
@@ -522,16 +431,16 @@ export async function activate(context: vs.ExtensionContext, isRestart: boolean 
 			envUtils,
 			fileTracker: openFileTracker,
 			flutterCapabilities,
-			flutterOutlineTreeProvider,
+			flutterOutlineTreeProvider: undefined,
 			getLogHeader,
 			initialAnalysis,
 			logger,
 			nextAnalysis,
-			packagesTreeProvider: dartPackagesProvider,
+			packagesTreeProvider: undefined,
 			pubGlobal,
 			renameProvider,
 			safeSpawn,
-			testTreeProvider,
+			testTreeProvider: undefined,
 			workspaceContext,
 		} as InternalExtensionApi,
 	};
