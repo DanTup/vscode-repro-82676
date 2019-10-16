@@ -1,0 +1,39 @@
+{
+	"extends": [
+		"tslint:recommended"
+	],
+	"linterOptions": {
+		"exclude": [
+			"src/shared/analysis_server_types.ts",
+			"src/extension/analysis/analyzer_gen.ts",
+			"node_modules/**"
+		]
+	},
+	"rulesDirectory": "lints/",
+	"rules": {
+		// Try to keep synced with Flutter extension!
+		"disallow-fspath": true,
+		"disallow-importing-non-shared-code": true,
+		"disallow-vscode": true,
+		"indent": {
+			"options": "tabs"
+		},
+		"curly": false,
+		"no-console": false,
+		"max-classes-per-file": false,
+		"interface-name": false,
+		"member-ordering": false,
+		"no-empty": {
+			"options": "allow-empty-catch"
+		},
+		"space-before-function-paren": false,
+		// TODO: These don't seem to work?
+		// "no-unused-expression": true,
+		// "no-floating-promises": true,
+		// TODO: Re-enable these (currently it seems hit-and-miss whether the IDE notices them
+		// so sometimes it reports no errors, then later complains?!)
+		"max-line-length": false,
+		"ordered-imports": false,
+		"no-shadowed-variable": false
+	}
+}
