@@ -1657,7 +1657,7 @@
 		"watch": "webpack --mode development --watch --info-verbosity verbose",
 		"build-tests": "tsc -p ./",
 		"watch-tests": "tsc -p ./ --watch",
-		"test": "npm run build-with-instrumentation && npm run build-tests && npm run test-only",
+		"test": "npm run build && npm run build-tests && npm run test-only",
 		"test-only": "node ./out/src/test/test_all.js"
 	},
 	"dependencies": {
