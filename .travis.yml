@@ -11,46 +11,16 @@ node_js: lts/*
 
 env:
   matrix:
-    - ONLY_RUN_CODE_VERSION=STABLE ONLY_RUN_DART_VERSION=STABLE RUN_TESTS=dart BOT=1
-    - ONLY_RUN_CODE_VERSION=STABLE ONLY_RUN_DART_VERSION=STABLE RUN_TESTS=dart BOT=2
-    - ONLY_RUN_CODE_VERSION=STABLE ONLY_RUN_DART_VERSION=STABLE RUN_TESTS=dart BOT=3
-    - ONLY_RUN_CODE_VERSION=STABLE ONLY_RUN_DART_VERSION=STABLE RUN_TESTS=dart BOT=4
-    - ONLY_RUN_CODE_VERSION=STABLE ONLY_RUN_DART_VERSION=STABLE RUN_TESTS=dart BOT=5
+    - BOT=1
+    - BOT=2
+    - BOT=3
+    - BOT=4
+    - BOT=5
 
 before_install:
-  - echo Misc setup
   - export ELECTRON_NO_ATTACH_CONSOLE=1
-  - export TRAVIS_COMMIT_AUTHOR="$(git log -1 $TRAVIS_COMMIT --pretty="%aN")"
-  - gem install dpl
-  - export DART_OS=macos;
-  - echo Setting variables...
-  - export DART_CHANNEL=stable/release;
-  - export FLUTTER_BRANCH=stable;
-  - mkdir -p with\ spaces
-  - cd with\ spaces
-  - echo Downloading Dart and Flutter...
-  - curl https://storage.googleapis.com/dart-archive/channels/$DART_CHANNEL/latest/sdk/dartsdk-$DART_OS-x64-release.zip > dart-sdk.zip
-  - unzip dart-sdk.zip > /dev/null
-  - export DART_PATH=`pwd`/dart-sdk
-
-  # To ensure we follow symlinks properly, put links
-  # in folders that we'll use in PATHs.
-  - mkdir dartsymlinkbins
-  - ln -s ../dart-sdk/bin/dart dartsymlinkbins/dart
-
-  # To ensure we detectonly detect real SDKs and not non-Dartlang
-  # dart binaries, add a fake dart that is actually just echo
-  - mkdir fakedart
-  - ln -s /bin/echo fakedart/dart
-
-  - export DART_PATH_SYMLINK=`pwd`/fakedart:`pwd`/dartsymlinkbins
   - node --version
   - npm --version
-  - dart-sdk/bin/dart --version
-  - dartsymlinkbins/dart --version
-  - cd ..
-  - mkdir -p .test_results
-  - mkdir -p .dart_code_test_logs
 
 install:
   - npm ci
