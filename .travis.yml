@@ -16,6 +16,11 @@ env:
     - BOT=3
     - BOT=4
     - BOT=5
+    - BOT=6
+    - BOT=7
+    - BOT=8
+    - BOT=9
+    - BOT=10
 
 before_install:
   - export ELECTRON_NO_ATTACH_CONSOLE=1
