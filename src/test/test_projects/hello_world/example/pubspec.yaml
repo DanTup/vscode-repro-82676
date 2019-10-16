@@ -1,4 +1,0 @@
-name: hello_world_example
-
-environment:
-  sdk: '>=2.0.0 <3.0.0'

@@ -71,24 +71,8 @@ async function runTests(testFolder: string, workspaceFolder: string, sdkPaths: s
 }
 
 async function runAllTests(): Promise<void> {
-	if (process.env.CI) {
-		const branchName = process.env.APPVEYOR_REPO_BRANCH || process.env.TRAVIS_BRANCH || process.env.GITHUB_REF;
-		const commit = process.env.APPVEYOR_REPO_COMMIT || process.env.TRAVIS_COMMIT || process.env.GITHUB_SHA;
-
-		console.log("\n\n");
-		console.log(yellow("A combined test summary will be available at:"));
-		console.log(yellow(`  https://dartcode.org/test-results/?${branchName}/${commit}`));
-		console.log("\n\n");
-	}
-
 	const codeVersion = process.env.ONLY_RUN_CODE_VERSION === "DEV" ? "insiders" : undefined;
 	const dartSdkPath = process.env.DART_PATH_SYMLINK || process.env.DART_PATH || process.env.PATH;
-	const flutterSdkPath = process.env.FLUTTER_PATH_SYMLINK || process.env.FLUTTER_PATH || process.env.PATH;
-
-	if (!dartSdkPath)
-		throw new Error("Could not find Dart SDK");
-	if (!flutterSdkPath)
-		throw new Error("Could not find Flutter SDK");
 
 	testEnv.DART_CODE_IS_TEST_RUN = true;
 	testEnv.MOCHA_FORBID_ONLY = true;
@@ -99,29 +83,8 @@ async function runAllTests(): Promise<void> {
 	if (!fs.existsSync(".dart_code_test_logs"))
 		fs.mkdirSync(".dart_code_test_logs");
 
-	const flutterRoot = process.env.FLUTTER_ROOT || process.env.FLUTTER_PATH;
-	const runDartTests = !process.env.RUN_TESTS || process.env.RUN_TESTS === "dart";
-	const runFlutterTests = !process.env.RUN_TESTS || process.env.RUN_TESTS === "flutter";
 	try {
-		if (runDartTests) {
-			// await runTests("not_activated/dart_create", "empty", dartSdkPath, codeVersion);
-			await runTests("dart_create_tests", "dart_create_tests.code-workspace", dartSdkPath, codeVersion);
-			// await runTests("dart_only", "hello_world", dartSdkPath, codeVersion);
-		}
-		if (runFlutterTests) {
-			await runTests("multi_root", "projects.code-workspace", flutterSdkPath, codeVersion);
-			await runTests("multi_project_folder", "", flutterSdkPath, codeVersion);
-			await runTests("not_activated/flutter_create", "empty", flutterSdkPath, codeVersion);
-			await runTests("flutter_create_tests", "flutter_create_tests.code-workspace", flutterSdkPath, codeVersion);
-			await runTests("flutter_only", "flutter_hello_world", flutterSdkPath, codeVersion);
-			await runTests("flutter_web_only", "flutter_web", flutterSdkPath, codeVersion);
-			if (flutterRoot) {
-				await runTests("flutter_repository", flutterRoot, flutterSdkPath, codeVersion);
-			} else {
-				console.error("FLUTTER_ROOT/FLUTTER_PATH NOT SET, SKIPPING FLUTTER REPO TESTS");
-				exitCode = 1;
-			}
-		}
+		await runTests("dart_create_tests", "dart_create_tests.code-workspace", dartSdkPath, codeVersion);
 	} catch (e) {
 		exitCode = 1;
 		console.error(e);

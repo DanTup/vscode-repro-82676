@@ -1,3 +1,0 @@
-main() {
-  throw Exception("Oops");
-}
