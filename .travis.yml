@@ -11,16 +11,26 @@ node_js: lts/*
 
 env:
   matrix:
-    - BOT=1
-    - BOT=2
-    - BOT=3
-    - BOT=4
-    - BOT=5
-    - BOT=6
-    - BOT=7
-    - BOT=8
-    - BOT=9
-    - BOT=10
+    - CODE_VERSION=insiders BOT=1
+    - CODE_VERSION=insiders BOT=2
+    - CODE_VERSION=insiders BOT=3
+    - CODE_VERSION=insiders BOT=4
+    - CODE_VERSION=insiders BOT=5
+    - CODE_VERSION=insiders BOT=6
+    - CODE_VERSION=insiders BOT=7
+    - CODE_VERSION=insiders BOT=8
+    - CODE_VERSION=insiders BOT=9
+    - CODE_VERSION=insiders BOT=10
+    - CODE_VERSION=stable BOT=1
+    - CODE_VERSION=stable BOT=2
+    - CODE_VERSION=stable BOT=3
+    - CODE_VERSION=stable BOT=4
+    - CODE_VERSION=stable BOT=5
+    - CODE_VERSION=stable BOT=6
+    - CODE_VERSION=stable BOT=7
+    - CODE_VERSION=stable BOT=8
+    - CODE_VERSION=stable BOT=9
+    - CODE_VERSION=stable BOT=10
 
 before_install:
   - export ELECTRON_NO_ATTACH_CONSOLE=1

@@ -22,6 +22,7 @@ async function runAllTests(): Promise<void> {
 					"--user-data-dir",
 					path.join(cwd, ".dart_code_test_data_dir"),
 				],
+				version: process.env.CODE_VERSION,
 			});
 			exitCode = exitCode || res;
 		} catch (e) {
